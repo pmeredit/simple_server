@@ -1,33 +1,47 @@
-use open;
-use reqwest;
-use std::net::TcpListener;
-use tide::Request;
+use actix_web::{dev::ServerHandle, middleware, rt, web, App, HttpRequest, HttpServer};
+use std::{sync::mpsc, thread, time};
 
-#[tokio::main]
-async fn main() {
-    open::that("http://127.0.0.1:8000").unwrap();
-    let mut app = tide::new();
-    app.at("/").get(web_action);
-    app.listen("127.0.0.1:8000").await.unwrap();
-    println!("{}", listener("127.0.0.1", 7999).await);
+async fn index(req: HttpRequest) -> &'static str {
+    println!("{}", "REQ: {req:?}");
+    "Hello world!"
 }
 
-async fn listener(host: &str, port: u16) -> String {
-    let urn = format!("{host}:{port}");
-    let listener = TcpListener::bind(&urn).unwrap();
-    println!("Listening on {}", urn);
+async fn run_app(sender: mpsc::Sender<ServerHandle>) -> std::io::Result<()> {
+    println!("starting HTTP server at http://localhost:8080");
 
-    for stream in listener.incoming() {
-        let stream = stream.unwrap();
-        dbg!(stream);
-    }
+    // srv is server controller type, `dev::Server`
+    let server = HttpServer::new(|| {
+        App::new()
+            // enable logger
+            .wrap(middleware::Logger::default())
+            .service(web::resource("/index.html").to(|| async { "Hello world!" }))
+            .service(web::resource("/").to(index))
+    })
+    .bind(("127.0.0.1", 8080))?
+    .workers(2)
+    .run();
 
-    "returning stuff".to_string()
+    // Send server handle back to the main thread
+    let _ = sender.send(server.handle());
+
+    server.await
 }
 
-async fn web_action(req: Request<()>) -> tide::Result {
-    println!("web action: {:?}", req);
-    let url = "127.0.0.1:7999";
-    reqwest::get(url).await.unwrap();
-    Ok(format!("AUTH SUCCEEDED!!!!").into())
+fn main() {
+    let (sender, receiver) = mpsc::channel();
+
+    println!("spawning thread for server");
+    thread::spawn(move || {
+        let server_future = run_app(sender);
+        rt::System::new().block_on(server_future)
+    });
+
+    let server_handle = receiver.recv().unwrap();
+
+    println!("waiting 10 seconds");
+    thread::sleep(time::Duration::from_secs(10));
+
+    // Send a stop signal to the server, waiting for it to exit gracefully
+    println!("stopping server");
+    rt::System::new().block_on(server_handle.stop(true));
 }
