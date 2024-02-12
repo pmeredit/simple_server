@@ -7,7 +7,7 @@ async fn index(req: HttpRequest) -> &'static str {
 }
 
 async fn run_app(sender: mpsc::Sender<ServerHandle>) -> std::io::Result<()> {
-    println!("starting HTTP server at http://localhost:8080");
+    println!("starting HTTP server at http://localhost:9080");
 
     // srv is server controller type, `dev::Server`
     let server = HttpServer::new(|| {
@@ -17,7 +17,7 @@ async fn run_app(sender: mpsc::Sender<ServerHandle>) -> std::io::Result<()> {
             .service(web::resource("/index.html").to(|| async { "Hello world!" }))
             .service(web::resource("/").to(index))
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(("127.0.0.1", 9080))?
     .workers(2)
     .run();
 
